@@ -1,0 +1,43 @@
+name: smart_home_pro
+description: Smart Home Automation App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # UI Components
+  google_fonts: ^5.1.0
+  
+  # Navigation
+  go_router: ^12.0.0
+
+dev_dependencies:
+
+  flutter_native_splash: ^2.3.7
+
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+# Images
+
+  assets:
+    - assets/images/onboard.jfif
+    - assets/images/
+
+
+  
+
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: "assets/images/splash_logo.png"
+  android: true
+  ios: true
