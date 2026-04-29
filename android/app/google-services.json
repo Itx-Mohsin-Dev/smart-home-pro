@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "726046775569",
+    "firebase_url": "https://smarthomefyp-3fcfd-default-rtdb.firebaseio.com",
+    "project_id": "smarthomefyp-3fcfd",
+    "storage_bucket": "smarthomefyp-3fcfd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:726046775569:android:7187f493c3cdc9e39f94b0",
+        "android_client_info": {
+          "package_name": "com.example.smart_home_pro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDj_3tFZmIAUga9eXB9WtGoZys-A_Df7zE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

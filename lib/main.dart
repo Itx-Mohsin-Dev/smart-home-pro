@@ -1,13 +1,25 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:smart_home_pro/core/constants/colors.dart';
 import 'package:smart_home_pro/core/routes/app_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:smart_home_pro/presentation/screens/statistics_screen.dart';
-import 'package:smart_home_pro/presentation/screens/automation_screen.dart';
-import 'package:smart_home_pro/presentation/screens/profile_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:smart_home_pro/services/auth_service.dart';
+import 'package:smart_home_pro/presentation/screens/splash_screen.dart';
+import 'firebase_options.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    print('✅ Firebase initialized successfully');
+  } catch (e) {
+    print('❌ Firebase initialization error: $e');
+  }
+  
   runApp(const MyApp());
 }
 
@@ -22,21 +34,11 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primaryColor: AppColors.primaryBlue,
         scaffoldBackgroundColor: AppColors.bgLightBlue,
-        appBarTheme: AppBarTheme(
+        appBarTheme: const AppBarTheme(
           backgroundColor: Colors.white,
           elevation: 0,
           centerTitle: true,
-          iconTheme: const IconThemeData(color: AppColors.darkGray),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primaryBlue,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
-          ),
+          iconTheme: IconThemeData(color: AppColors.darkGray),
         ),
         useMaterial3: true,
         textTheme: GoogleFonts.interTextTheme(

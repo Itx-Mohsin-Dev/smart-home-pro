@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:smart_home_pro/core/constants/colors.dart';
-import 'package:smart_home_pro/core/constants/text_styles.dart';
+import 'package:smart_home_pro/services/firebase_service.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'dart:math' as math;
 
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
@@ -9,831 +11,312 @@ class StatisticsScreen extends StatefulWidget {
   State<StatisticsScreen> createState() => _StatisticsScreenState();
 }
 
-class _StatisticsScreenState extends State<StatisticsScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  String _selectedPeriod = 'Week';
-  List<String> periods = ['Day', 'Week', 'Month', 'Year'];
+class _StatisticsScreenState extends State<StatisticsScreen> {
+  bool _isLoading = true;
+  
+  Map<String, double> _deviceUsage = {};
+  double _totalUnits = 0;
+  double _allowedUnits = 10;
+  String _warningState = 'NORMAL';
+  String _peakStart = '18:00';
+  String _peakEnd = '23:00';
+  
+  final Map<String, String> _deviceLabels = {
+    'light1': 'Lights',
+    'fan1': 'Fan',
+    'curtain1': 'Curtains',
+    'motor1': 'Water Motor',
+  };
+  
+  final Map<String, Color> _deviceColors = {
+    'light1': AppColors.accentAmber,
+    'fan1': AppColors.primaryBlue,
+    'curtain1': AppColors.accentPurple,
+    'motor1': AppColors.primaryGreen,
+  };
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _loadData();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+  Future<void> _loadData() async {
+    await Future.wait([
+      _loadUsageData(),
+      _loadSettings(),
+    ]);
+    setState(() => _isLoading = false);
+  }
+
+  Future<void> _loadUsageData() async {
+    final devicesSnapshot = await FirebaseService.database.child('usage/devices').once();
+    if (devicesSnapshot.snapshot.value != null) {
+      final devices = devicesSnapshot.snapshot.value as Map<dynamic, dynamic>;
+      _deviceUsage.clear();
+      devices.forEach((key, value) {
+        _deviceUsage[key.toString()] = (value as num).toDouble();
+      });
+    }
+    
+    final totalSnapshot = await FirebaseService.database.child('usage/total_consumed_units').once();
+    if (totalSnapshot.snapshot.value != null) {
+      _totalUnits = (totalSnapshot.snapshot.value as num).toDouble();
+    }
+    
+    final warningSnapshot = await FirebaseService.database.child('usage/warning_state').once();
+    if (warningSnapshot.snapshot.value != null) {
+      _warningState = warningSnapshot.snapshot.value.toString();
+    }
+  }
+
+  Future<void> _loadSettings() async {
+    final allowedSnapshot = await FirebaseService.database.child('settings/allowed_units').once();
+    if (allowedSnapshot.snapshot.value != null) {
+      _allowedUnits = (allowedSnapshot.snapshot.value as num).toDouble();
+    }
+    
+    final peakStartSnap = await FirebaseService.database.child('settings/peak_start').once();
+    if (peakStartSnap.snapshot.value != null) {
+      _peakStart = peakStartSnap.snapshot.value.toString();
+    }
+    
+    final peakEndSnap = await FirebaseService.database.child('settings/peak_end').once();
+    if (peakEndSnap.snapshot.value != null) {
+      _peakEnd = peakEndSnap.snapshot.value.toString();
+    }
+  }
+
+  double _getTotalCost() {
+    return _totalUnits * 25;
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: AppColors.bgLightBlue,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final totalCost = _getTotalCost();
+    final unitPercentage = (_totalUnits / _allowedUnits * 100).clamp(0, 100);
+    final sortedDevices = _deviceUsage.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+
     return Scaffold(
       backgroundColor: AppColors.bgLightBlue,
-      body: Column(
-        children: [
-          // App Bar
-          Container(
-            color: Colors.white,
-            child: SafeArea(
-              bottom: false,
+      appBar: AppBar(
+        title: const Text('Statistics'),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // Unit Usage Card
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: _totalUnits >= _allowedUnits ? 
+                    LinearGradient(colors: [AppColors.error, AppColors.error.withOpacity(0.8)]) :
+                    LinearGradient(colors: [AppColors.primaryBlue, AppColors.primaryBlue.withOpacity(0.8)]),
+                borderRadius: BorderRadius.circular(20),
+              ),
               child: Column(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Statistics',
-                          style: AppTextStyles.h2(context).copyWith(
-                            fontSize: 22,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Total Energy Consumption', style: TextStyle(color: Colors.white, fontSize: 14)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
+                        child: Text(_warningState, style: const TextStyle(color: Colors.white, fontSize: 11)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text('${_totalUnits.toStringAsFixed(2)} kWh', style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text('Limit: $_allowedUnits units', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  const SizedBox(height: 12),
+                  LinearProgressIndicator(
+                    value: unitPercentage / 100,
+                    backgroundColor: Colors.white.withOpacity(0.3),
+                    color: unitPercentage > 80 ? Colors.orange : Colors.white,
+                  ),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Cost Card
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: AppColors.cardShadow),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Estimated Cost', style: TextStyle(fontSize: 14, color: AppColors.mediumGray)),
+                      Text('Based on PKR 25/unit', style: TextStyle(fontSize: 11, color: AppColors.mediumGray)),
+                    ],
+                  ),
+                  Text('Rs ${totalCost.toStringAsFixed(0)}', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.primaryGreen)),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Device Breakdown
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: AppColors.cardShadow),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Device-wise Breakdown', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 16),
+                  
+                  // Donut Chart
+                  SizedBox(
+                    height: 180,
+                    child: Center(
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          CustomPaint(
+                            size: const Size(150, 150),
+                            painter: DonutChartPainter(
+                              values: _deviceUsage.values.toList(),
+                              colors: _deviceUsage.keys.map((k) => _deviceColors[k] ?? AppColors.mediumGray).toList(),
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.download_outlined, size: 22),
-                          onPressed: () {},
-                          color: AppColors.darkGray,
-                        ),
-                      ],
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('${_totalUnits.toStringAsFixed(2)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                              const Text('Total kWh', style: TextStyle(fontSize: 11, color: AppColors.mediumGray)),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Devices List
+                  ...sortedDevices.map((entry) {
+                    final deviceId = entry.key;
+                    final usage = entry.value;
+                    final percent = _totalUnits > 0 ? (usage / _totalUnits * 100).round() : 0;
+                    final color = _deviceColors[deviceId] ?? AppColors.mediumGray;
+                    
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _deviceLabels[deviceId] ?? deviceId,
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                          Text('${usage.toStringAsFixed(3)} kWh', style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w600)),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 40,
+                            child: Text('$percent%', style: const TextStyle(fontSize: 12, color: AppColors.mediumGray), textAlign: TextAlign.right),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Peak Hours Info
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: AppColors.cardShadow),
+              child: Row(
+                children: [
                   Container(
-                    color: Colors.white,
-                    child: TabBar(
-                      controller: _tabController,
-                      labelColor: AppColors.primaryBlue,
-                      unselectedLabelColor: AppColors.mediumGray,
-                      indicatorColor: AppColors.primaryBlue,
-                      indicatorWeight: 3,
-                      labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                      unselectedLabelStyle: const TextStyle(fontSize: 13),
-                      tabs: const [
-                        Tab(text: 'Energy'),
-                        Tab(text: 'Cost'),
-                        Tab(text: 'Devices'),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: AppColors.error.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.timer, color: AppColors.error),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Peak Hours', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        Text('$_peakStart - $_peakEnd', style: const TextStyle(fontSize: 12, color: AppColors.mediumGray)),
+                        const Text('Higher rates apply during this time', style: TextStyle(fontSize: 11, color: AppColors.mediumGray)),
                       ],
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-          
-          Expanded(
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
-                child: Column(
-                  children: [
-                    // Period Selector
-                    _buildPeriodSelector(),
-                    
-                    const SizedBox(height: 14),
-                    
-                    // Summary Cards
-                    _buildSummaryCards(),
-                    
-                    const SizedBox(height: 14),
-                    
-                    // Charts Area (Based on Tab)
-                    SizedBox(
-                      height: 360,
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _buildEnergyChart(),
-                          _buildCostChart(),
-                          _buildDevicesChart(),
-                        ],
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 14),
-                    
-                    // Savings Tips
-                    _buildSavingsTips(),
-                    
-                    const SizedBox(height: 14),
-                    
-                    // Device Comparison
-                    _buildDeviceComparison(),
-                    
-                    const SizedBox(height: 30),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
+  }
+}
+
+// Donut Chart Painter
+class DonutChartPainter extends CustomPainter {
+  final List<double> values;
+  final List<Color> colors;
+
+  DonutChartPainter({required this.values, required this.colors});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final total = values.isEmpty ? 1 : values.reduce((a, b) => a + b);
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 8;
+    
+    double startAngle = -math.pi / 2;
+    
+    for (int i = 0; i < values.length; i++) {
+      final sweepAngle = (values[i] / total) * 2 * math.pi;
+      final paint = Paint()
+        ..color = colors[i % colors.length]
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 20
+        ..strokeCap = StrokeCap.round;
+      
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweepAngle,
+        false,
+        paint,
+      );
+      startAngle += sweepAngle;
+    }
   }
 
-  Widget _buildPeriodSelector() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: AppColors.cardShadow,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: periods.map((period) {
-            bool isSelected = _selectedPeriod == period;
-            return GestureDetector(
-              onTap: () {
-                setState(() {
-                  _selectedPeriod = period;
-                });
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: isSelected ? AppColors.primaryBlue : Colors.transparent,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  period,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: isSelected ? Colors.white : AppColors.mediumGray,
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSummaryCards() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildSummaryCard(
-            title: 'Total Usage',
-            value: '124.5 kWh',
-            change: '+12%',
-            isPositive: false,
-            color: AppColors.primaryBlue,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _buildSummaryCard(
-            title: 'Cost',
-            value: '₹1,845',
-            change: '-8%',
-            isPositive: true,
-            color: AppColors.primaryGreen,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _buildSummaryCard(
-            title: 'Savings',
-            value: '₹2,450',
-            change: '+20%',
-            isPositive: true,
-            color: AppColors.accentPurple,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSummaryCard({
-    required String title,
-    required String value,
-    required String change,
-    required bool isPositive,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: AppColors.cardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(5),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  isPositive ? Icons.trending_up : Icons.trending_down,
-                  color: color,
-                  size: 16,
-                ),
-              ),
-              Text(
-                change,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: isPositive ? AppColors.primaryGreen : AppColors.error,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 11,
-              color: AppColors.mediumGray,
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: AppColors.darkGray,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEnergyChart() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: AppColors.cardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Energy Consumption',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppColors.darkGray,
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          // Mock Chart
-          Container(
-            height: 160,
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: AppColors.borderGray),
-                left: BorderSide(color: AppColors.borderGray),
-              ),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildChartBar('Mon', 80, AppColors.primaryBlue),
-                _buildChartBar('Tue', 65, AppColors.primaryBlue),
-                _buildChartBar('Wed', 90, AppColors.primaryBlue),
-                _buildChartBar('Thu', 45, AppColors.primaryBlue),
-                _buildChartBar('Fri', 75, AppColors.primaryBlue),
-                _buildChartBar('Sat', 95, AppColors.primaryBlue),
-                _buildChartBar('Sun', 60, AppColors.primaryBlue),
-              ],
-            ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // Peak Hours - Fixed overflow
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryBlue,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Peak Hours (6 PM - 10 PM)',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.darkGray,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '42% of total',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primaryBlue,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCostChart() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: AppColors.cardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Cost Analysis',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppColors.darkGray,
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          // Pie Chart Mock
-          Center(
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Container(
-                  width: 160,
-                  height: 160,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.borderGray, width: 8),
-                  ),
-                ),
-                Column(
-                  children: [
-                    Text(
-                      '₹1,845',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.darkGray,
-                      ),
-                    ),
-                    Text(
-                      'Total Cost',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.mediumGray,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // Cost Breakdown - Fixed overflow
-          Column(
-            children: [
-              _buildCostItem('Air Conditioner', '₹620', 33, AppColors.primaryBlue),
-              const SizedBox(height: 8),
-              _buildCostItem('Lighting', '₹380', 21, AppColors.accentAmber),
-              const SizedBox(height: 8),
-              _buildCostItem('Water Motor', '₹450', 24, AppColors.primaryGreen),
-              const SizedBox(height: 8),
-              _buildCostItem('Others', '₹395', 22, AppColors.accentPurple),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDevicesChart() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: AppColors.cardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Device-wise Consumption',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppColors.darkGray,
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          // Device Bars
-          Column(
-            children: [
-              _buildDeviceBar('Air Conditioner', 35, AppColors.primaryBlue, Icons.ac_unit),
-              const SizedBox(height: 12),
-              _buildDeviceBar('Living Room Lights', 21, AppColors.accentAmber, Icons.lightbulb),
-              const SizedBox(height: 12),
-              _buildDeviceBar('Water Motor', 24, AppColors.primaryGreen, Icons.water_damage),
-              const SizedBox(height: 12),
-              _buildDeviceBar('Curtains', 8, AppColors.accentPurple, Icons.curtains),
-              const SizedBox(height: 12),
-              _buildDeviceBar('Others', 12, AppColors.mediumGray, Icons.devices),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSavingsTips() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: AppColors.cardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Savings Tips',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.darkGray,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryGreen.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  '₹450/month',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.primaryGreen,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          
-          Column(
-            children: [
-              _buildTipItem(
-                'Reduce AC usage during peak hours (6-10 PM)',
-                Icons.ac_unit,
-                AppColors.primaryBlue,
-              ),
-              const SizedBox(height: 10),
-              _buildTipItem(
-                'Use LED bulbs in living room',
-                Icons.lightbulb,
-                AppColors.accentAmber,
-              ),
-              const SizedBox(height: 10),
-              _buildTipItem(
-                'Schedule water motor to avoid peak hours',
-                Icons.water_damage,
-                AppColors.primaryGreen,
-              ),
-              const SizedBox(height: 10),
-              _buildTipItem(
-                'Enable auto-curtains to reduce AC load',
-                Icons.curtains,
-                AppColors.accentPurple,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDeviceComparison() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: AppColors.cardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Comparison with Similar Homes',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppColors.darkGray,
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  children: [
-                    Text(
-                      'You',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.mediumGray,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      height: 120,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [AppColors.primaryBlue, AppColors.primaryGreen],
-                          begin: Alignment.bottomCenter,
-                          end: Alignment.topCenter,
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Center(
-                        child: Text(
-                          '124.5\nkWh',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  children: [
-                    Text(
-                      'Average',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.mediumGray,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      height: 140,
-                      decoration: BoxDecoration(
-                        color: AppColors.borderGray,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Center(
-                        child: Text(
-                          '156.8\nkWh',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.darkGray,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Center(
-            child: Text(
-              'You save 21% more than average!',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.primaryGreen,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Helper Widgets
-  Widget _buildChartBar(String label, double height, Color color) {
-    return Column(
-      children: [
-        Container(
-          width: 24,
-          height: height,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [color, color.withOpacity(0.7)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(6),
-              topRight: Radius.circular(6),
-            ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: AppColors.mediumGray,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCostItem(String item, String cost, int percent, Color color) {
-    return Row(
-      children: [
-        Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            item,
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.darkGray,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          cost,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: AppColors.darkGray,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '$percent%',
-          style: TextStyle(
-            fontSize: 12,
-            color: AppColors.mediumGray,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDeviceBar(String device, int percent, Color color, IconData icon) {
-    return Row(
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, color: color, size: 18),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                device,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppColors.darkGray,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 4),
-              Container(
-                height: 5,
-                decoration: BoxDecoration(
-                  color: AppColors.borderGray,
-                  borderRadius: BorderRadius.circular(2.5),
-                ),
-                child: FractionallySizedBox(
-                  alignment: Alignment.centerLeft,
-                  widthFactor: percent / 100,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [color, color.withOpacity(0.7)],
-                      ),
-                      borderRadius: BorderRadius.circular(2.5),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 10),
-        Text(
-          '$percent%',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTipItem(String tip, IconData icon, Color color) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: color, size: 16),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            tip,
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.darkGray,
-              height: 1.3,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
